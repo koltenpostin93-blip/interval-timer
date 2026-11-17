@@ -55,6 +55,17 @@ def beep_wav(freq=880, secs=0.4, rate=22050):
     return buf.getvalue()
 
 
+def speak(text):
+    """Say text out loud with the browser's built-in voice, just after the beep."""
+    import json
+
+    st.html(
+        f"<script>setTimeout(()=>{{const u=new SpeechSynthesisUtterance({json.dumps(text)});"
+        "speechSynthesis.cancel();speechSynthesis.speak(u);}, 700);</script>",
+        unsafe_allow_javascript=True,
+    )
+
+
 def fmt(s):
     s = int(s)
     return f"{s // 60}:{s % 60:02d}"
@@ -75,7 +86,13 @@ def display():
     idx = int(elapsed // cycle) * 2 + (0 if in_a else 1)
     if idx != ss.get("last_idx"):
         ss.last_idx = idx
-        st.audio(beep_wav(880 if in_a else 660), format="audio/wav", autoplay=True, width=1)
+        if in_a:
+            say = f"Start {a_name.lower()}" if idx == 0 else f"Back to {a_name.lower()}"
+            st.audio(beep_wav(880, 0.9), format="audio/wav", autoplay=True, width=1)  # long beep
+        else:
+            say = f"Time to {b_name.lower()}"
+            st.audio(beep_wav(600, 0.3), format="audio/wav", autoplay=True, width=1)  # short, lower beep
+        speak(say)
     name, length, into = (a_name, a_sec, pos) if in_a else (b_name, b_sec, pos - a_sec)
     st.markdown(f"<h1 style='text-align:center;font-size:5rem;margin:0'>{fmt(length - into + 0.99)}</h1>", unsafe_allow_html=True)
     st.markdown(f"<h2 style='text-align:center;margin:0'>{name}</h2>", unsafe_allow_html=True)
@@ -87,3 +104,4 @@ display()
 if ss.pop("finished", False):
     st.success("Done!")
     st.audio(beep_wav(1200, 0.8), format="audio/wav", autoplay=True, width=1)
+    speak("Done")
