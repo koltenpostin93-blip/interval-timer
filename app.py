@@ -38,30 +38,34 @@ else:
         st.rerun()
 
 
-@st.cache_data
-def beep_wav(freq=880, secs=0.4, rate=22050):
-    import io, math, struct, wave
+# Phones only allow sound that was "unlocked" by a tap, and the timer's beeps fire
+# later from a timer, not from a tap. So the first tap (Start) unlocks WebAudio +
+# speech once, and every later cue plays through that unlocked audio context.
+SETUP_JS = """<script>(()=>{
+if(window.__jsa)return;const J=window.__jsa={ctx:null};
+const unlock=()=>{
+ try{const AC=window.AudioContext||window.webkitAudioContext;J.ctx=J.ctx||new AC();J.ctx.resume();
+  const s=J.ctx.createBufferSource();s.buffer=J.ctx.createBuffer(1,1,22050);s.connect(J.ctx.destination);s.start(0);}catch(e){}
+ try{const u=new SpeechSynthesisUtterance(' ');u.volume=0;speechSynthesis.speak(u);}catch(e){}
+ try{navigator.wakeLock&&navigator.wakeLock.request('screen').catch(()=>{});}catch(e){}
+};
+['pointerdown','touchend','click','keydown'].forEach(ev=>document.addEventListener(ev,unlock,{capture:true,passive:true}));
+J.cue=(freq,dur,text)=>{
+ try{const c=J.ctx;if(c){if(c.state!=='running')c.resume();
+  const o=c.createOscillator(),g=c.createGain();o.frequency.value=freq;
+  g.gain.setValueAtTime(0.7,c.currentTime);g.gain.linearRampToValueAtTime(0,c.currentTime+dur);
+  o.connect(g);g.connect(c.destination);o.start();o.stop(c.currentTime+dur);}}catch(e){}
+ setTimeout(()=>{try{speechSynthesis.cancel();speechSynthesis.speak(new SpeechSynthesisUtterance(text));}catch(e){}},dur*1000+150);
+};})();</script>"""
+st.html(SETUP_JS, unsafe_allow_javascript=True)
 
-    buf = io.BytesIO()
-    with wave.open(buf, "wb") as w:
-        w.setnchannels(1)
-        w.setsampwidth(2)
-        w.setframerate(rate)
-        n = int(rate * secs)
-        w.writeframes(b"".join(
-            struct.pack("<h", int(20000 * math.sin(2 * math.pi * freq * i / rate) * (1 - i / n)))
-            for i in range(n)
-        ))
-    return buf.getvalue()
 
-
-def speak(text):
-    """Say text out loud with the browser's built-in voice, just after the beep."""
+def cue(freq, secs, text):
+    """Beep (freq Hz for secs seconds), then say text out loud."""
     import json
 
     st.html(
-        f"<script>setTimeout(()=>{{const u=new SpeechSynthesisUtterance({json.dumps(text)});"
-        "speechSynthesis.cancel();speechSynthesis.speak(u);}, 700);</script>",
+        f"<script>window.__jsa&&window.__jsa.cue({freq},{secs},{json.dumps(text)})</script>",
         unsafe_allow_javascript=True,
     )
 
@@ -88,11 +92,11 @@ def display():
         ss.last_idx = idx
         if in_a:
             say = f"Start {a_name.lower()}" if idx == 0 else f"Back to {a_name.lower()}"
-            st.audio(beep_wav(880, 0.9), format="audio/wav", autoplay=True, width=1)  # long beep
+            freq, secs = 880, 0.9  # long beep
         else:
             say = f"Time to {b_name.lower()}"
-            st.audio(beep_wav(600, 0.3), format="audio/wav", autoplay=True, width=1)  # short, lower beep
-        speak(say)
+            freq, secs = 600, 0.3  # short, lower beep
+        cue(freq, secs, say)
     name, length, into = (a_name, a_sec, pos) if in_a else (b_name, b_sec, pos - a_sec)
     st.markdown(f"<h1 style='text-align:center;font-size:5rem;margin:0'>{fmt(length - into + 0.99)}</h1>", unsafe_allow_html=True)
     st.markdown(f"<h2 style='text-align:center;margin:0'>{name}</h2>", unsafe_allow_html=True)
@@ -103,5 +107,4 @@ def display():
 display()
 if ss.pop("finished", False):
     st.success("Done!")
-    st.audio(beep_wav(1200, 0.8), format="audio/wav", autoplay=True, width=1)
-    speak("Done")
+    cue(1200, 0.8, "Done")
